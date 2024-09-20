@@ -17,6 +17,9 @@ library(tidyverse)
 library(sandwich)
 library(lmtest)
 ```
+
+## Perils of Peer Effects Write Up and Simulation
+
 Angrist's "The Perils of Peer Effects" (2014) discusses potential pitfalls when identifying the causal effects of peer characteristics on outcomes. This write up briefly summarizes the potential issues discussed, Angrist’s proposed solutions, and provides simulations to highlight both.
 
 # Linear In-Means

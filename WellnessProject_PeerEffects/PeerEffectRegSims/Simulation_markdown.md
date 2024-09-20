@@ -1,3 +1,5 @@
+## Perils of Peer Effects Write Up and Simulation
+
 Angrist’s “The Perils of Peer Effects” (2014) discusses potential
 pitfalls when identifying the causal effects of peer characteristics on
 outcomes. This write up briefly summarizes the potential issues
@@ -26,18 +28,18 @@ the results below:
     ## 
     ## Residuals:
     ##     Min      1Q  Median      3Q     Max 
-    ## -0.8007 -0.2003 -0.2003  0.1993  0.7997 
+    ## -0.8014 -0.1993  0.1986  0.1986  0.8007 
     ## 
     ## Coefficients:
-    ##              Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept) 1.548e-12  1.806e-03     0.0        1    
-    ## rate        1.000e+00  3.246e-03   308.1   <2e-16 ***
+    ##               Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept) -4.931e-12  1.804e-03     0.0        1    
+    ## rate         1.000e+00  3.234e-03   309.2   <2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 0.4358 on 299998 degrees of freedom
-    ## Multiple R-squared:  0.2403, Adjusted R-squared:  0.2403 
-    ## F-statistic: 9.492e+04 on 1 and 299998 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 0.4354 on 299998 degrees of freedom
+    ## Multiple R-squared:  0.2416, Adjusted R-squared:  0.2416 
+    ## F-statistic: 9.559e+04 on 1 and 299998 DF,  p-value: < 2.2e-16
 
 This regression produces a coefficient of 1, as predicted by Angrist.
 
@@ -71,10 +73,10 @@ and more coarse. I then ran an OLS regression of “high\_school” against
 results of these regressions are in the table below, with the
 coefficients of OLS, 2SLS, their ratio, and their :
 
-    ##          OLS Reg      OLS SE  2SLS Reg    2SLS SE    Ratio
-    ## Dorms  0.1939014 0.009809229 1.5164050 1.76825014 7.820494
-    ## Floors 0.1939014 0.009809229 0.3134256 0.19788206 1.616417
-    ## Rooms  0.1939014 0.009809229 0.2201097 0.03777176 1.135163
+    ##          OLS Reg      OLS SE  2SLS Reg    2SLS SE     Ratio
+    ## Dorms  0.1998363 0.009799908 0.5516484 0.37350373 2.7605018
+    ## Floors 0.1998363 0.009799908 0.2648237 0.18540486 1.3252034
+    ## Rooms  0.1998363 0.009799908 0.1829094 0.03622033 0.9152962
 
 Here, we see results consistent with what Angrist predicted. As
 groupings becoming more coarse (moving from rooms to floors to dorms),
@@ -106,8 +108,8 @@ individual and regressed against “characteristic\_mod”.
     ## t test of coefficients:
     ## 
     ##              Estimate Std. Error t value  Pr(>|t|)    
-    ## (Intercept) 27.258052   2.964153  9.1959 < 2.2e-16 ***
-    ## leave_out    0.504339   0.053895  9.3579 < 2.2e-16 ***
+    ## (Intercept) 34.371891   3.265186 10.5268 < 2.2e-16 ***
+    ## leave_out    0.374560   0.059409  6.3048 5.609e-10 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
@@ -144,18 +146,18 @@ states as an instrument.
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -24.4324  -6.9470  -0.5286   6.7576  31.2562 
+    ## -16.3145  -2.7501   0.0026   2.6281  17.5304 
     ## 
     ## Coefficients:
     ##             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept) 155.2474     2.6342   58.94   <2e-16 ***
-    ## educ_state   29.1706     0.1604  181.90   <2e-16 ***
+    ## (Intercept) 192.5883     1.6772   114.8   <2e-16 ***
+    ## educ_state   26.4162     0.1083   244.0   <2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 9.847 on 998 degrees of freedom
-    ## Multiple R-squared:  0.9707, Adjusted R-squared:  0.9707 
-    ## F-statistic: 3.309e+04 on 1 and 998 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 5.516 on 998 degrees of freedom
+    ## Multiple R-squared:  0.9835, Adjusted R-squared:  0.9835 
+    ## F-statistic: 5.954e+04 on 1 and 998 DF,  p-value: < 2.2e-16
 
     ## 
     ## Call:
@@ -163,24 +165,26 @@ states as an instrument.
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -119.859  -31.787   -1.637   29.418  124.325 
+    ## -62.5209 -13.1169  -0.4098  13.0967  54.9725 
     ## 
     ## Coefficients:
-    ##             Estimate Std. Error t value Pr(>|t|)
-    ## (Intercept)  520.320   2077.708   0.250    0.802
-    ## educ_state     6.789    127.380   0.053    0.958
+    ##             Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)   19.791     61.562   0.321    0.748    
+    ## educ_state    37.631      3.995   9.419   <2e-16 ***
     ## 
     ## Diagnostic tests:
-    ##                  df1 df2 statistic p-value
-    ## Weak instruments   1 998     0.032   0.857
-    ## Wu-Hausman         1 997     0.633   0.426
-    ## Sargan             0  NA        NA      NA
+    ##                  df1 df2 statistic p-value    
+    ## Weak instruments   1 998     8.687 0.00328 ** 
+    ## Wu-Hausman         1 997   102.947 < 2e-16 ***
+    ## Sargan             0  NA        NA      NA    
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 44.6 on 998 degrees of freedom
-    ## Multiple R-Squared: 0.3992,  Adjusted R-squared: 0.3986 
-    ## Wald test: 0.00284 on 1 and 998 DF,  p-value: 0.9575
+    ## Residual standard error: 18.91 on 998 degrees of freedom
+    ## Multiple R-Squared: 0.8063,  Adjusted R-squared: 0.8061 
+    ## Wald test: 88.72 on 1 and 998 DF,  p-value: < 2.2e-16
 
-    ## [1] -22.38187
+    ## [1] 11.21476
 
 As can be seen, the failure of the state instrument to satisfy the
 exclusion restriction results in the 2SLS estimate of the effect of
@@ -201,18 +205,18 @@ below.
     ## 
     ## Residuals:
     ##    Min     1Q Median     3Q    Max 
-    ## -88.21 -16.67   0.63  17.48  82.35 
+    ## -80.91 -17.29  -0.41  17.22  92.72 
     ## 
     ## Coefficients:
     ##             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)  380.879      5.289   72.02   <2e-16 ***
-    ## educ_noise    12.017      0.372   32.30   <2e-16 ***
+    ## (Intercept) 376.8965     5.4767   68.82   <2e-16 ***
+    ## educ_noise   12.2727     0.3856   31.82   <2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 26.24 on 998 degrees of freedom
-    ## Multiple R-squared:  0.5111, Adjusted R-squared:  0.5106 
-    ## F-statistic:  1043 on 1 and 998 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 26.25 on 998 degrees of freedom
+    ## Multiple R-squared:  0.5037, Adjusted R-squared:  0.5032 
+    ## F-statistic:  1013 on 1 and 998 DF,  p-value: < 2.2e-16
 
     ## 
     ## Call:
@@ -220,24 +224,24 @@ below.
     ## 
     ## Residuals:
     ##       Min        1Q    Median        3Q       Max 
-    ## -221.9856  -38.4194    0.3261   40.3014  171.5817 
+    ## -135.8653  -26.4573   -0.1312   27.9226  119.5043 
     ## 
     ## Coefficients:
     ##             Estimate Std. Error t value Pr(>|t|)
-    ## (Intercept)    34.33    1273.50   0.027    0.978
-    ## educ_noise     36.70      90.71   0.405    0.686
+    ## (Intercept)   161.79     524.82   0.308    0.758
+    ## educ_noise     27.60      37.39   0.738    0.461
     ## 
     ## Diagnostic tests:
     ##                  df1 df2 statistic p-value
-    ## Weak instruments   1 998     0.091   0.763
-    ## Wu-Hausman         1 997     0.400   0.527
+    ## Weak instruments   1 998     0.274   0.601
+    ## Wu-Hausman         1 997     0.434   0.510
     ## Sargan             0  NA        NA      NA
     ## 
-    ## Residual standard error: 61.04 on 998 degrees of freedom
-    ## Multiple R-Squared: -1.645,  Adjusted R-squared: -1.648 
-    ## Wald test: 0.1637 on 1 and 998 DF,  p-value: 0.6859
+    ## Residual standard error: 42.18 on 998 degrees of freedom
+    ## Multiple R-Squared: -0.2815, Adjusted R-squared: -0.2828 
+    ## Wald test: 0.5448 on 1 and 998 DF,  p-value: 0.4606
 
-    ## [1] 24.68317
+    ## [1] 15.32349
 
 The estimated 2SLS estimate of education is larger than the OLS
 estimate, creating the appearance of peer effects
@@ -264,9 +268,9 @@ regression).
     ## 
     ## t test of coefficients:
     ## 
-    ##               Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept) 2.4996e+02 3.0560e-01 817.915   <2e-16 ***
-    ## peer_char   1.0135e-03 2.9781e-02   0.034   0.9729    
+    ##               Estimate Std. Error  t value Pr(>|t|)    
+    ## (Intercept) 249.517041   0.348211 716.5690   <2e-16 ***
+    ## peer_char     0.041726   0.032417   1.2872   0.1981    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
@@ -274,8 +278,8 @@ regression).
     ## t test of coefficients:
     ## 
     ##               Estimate Std. Error t value  Pr(>|t|)    
-    ## (Intercept) 249.958435   0.305604 817.915 < 2.2e-16 ***
-    ## peer_char     0.501013   0.029781  16.823 < 2.2e-16 ***
+    ## (Intercept) 249.517041   0.348211 716.569 < 2.2e-16 ***
+    ## peer_char     0.541726   0.032417  16.711 < 2.2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
@@ -321,18 +325,18 @@ peer effects.
     ## 
     ## Residuals:
     ##     Min      1Q  Median      3Q     Max 
-    ## -0.3490 -0.3490 -0.2504  0.6510  0.7497 
+    ## -0.3502 -0.3502 -0.2486  0.6498  0.7514 
     ## 
     ## Coefficients:
     ##             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept) 0.250346   0.001319  189.79   <2e-16 ***
-    ## job_assist  0.098681   0.001878   52.55   <2e-16 ***
+    ## (Intercept) 0.248643   0.001252  198.52   <2e-16 ***
+    ## job_assist  0.101583   0.001879   54.05   <2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 0.4552 on 234998 degrees of freedom
-    ## Multiple R-squared:  0.01161,    Adjusted R-squared:  0.01161 
-    ## F-statistic:  2761 on 1 and 234998 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 0.4527 on 234998 degrees of freedom
+    ## Multiple R-squared:  0.01228,    Adjusted R-squared:  0.01228 
+    ## F-statistic:  2921 on 1 and 234998 DF,  p-value: < 2.2e-16
 
     ## 
     ## Call:
@@ -340,18 +344,18 @@ peer effects.
     ## 
     ## Residuals:
     ##     Min      1Q  Median      3Q     Max 
-    ## -0.3496 -0.3246 -0.2747  0.6504  0.7502 
+    ## -0.3499 -0.2994 -0.2490  0.6501  0.7510 
     ## 
     ## Coefficients:
     ##             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept) 0.249757   0.001595  156.58   <2e-16 ***
-    ## assist_rate 0.099812   0.002608   38.26   <2e-16 ***
+    ## (Intercept) 0.248995   0.001449   171.9   <2e-16 ***
+    ## assist_rate 0.100904   0.002491    40.5   <2e-16 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 0.4564 on 234998 degrees of freedom
-    ## Multiple R-squared:  0.006192,   Adjusted R-squared:  0.006188 
-    ## F-statistic:  1464 on 1 and 234998 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 0.4539 on 234998 degrees of freedom
+    ## Multiple R-squared:  0.006931,   Adjusted R-squared:  0.006927 
+    ## F-statistic:  1640 on 1 and 234998 DF,  p-value: < 2.2e-16
 
 As can be the seen, the coefficients for the OLS regression on job
 assistance (the first regression) and the 2SLS regression (the second
@@ -359,7 +363,7 @@ regression) appear to be pretty similar. Testing against the null
 hypothesis the two coefficients are equal (or alternatively their
 difference is 0) produces the following z-score.
 
-    ## [1] 0.351898
+    ## [1] -0.2175124
 
 We would then fail to reject a null hypothesis that the OLS and 2SLS
 parameters have a difference that is not equal to 0 at the 5% level. To
