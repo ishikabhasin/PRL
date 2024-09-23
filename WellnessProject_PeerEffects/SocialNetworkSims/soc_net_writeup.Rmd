@@ -1,0 +1,851 @@
+---
+title: "Social Network Simulation"
+author: "Jacob McGill"
+date: "2024-08-19"
+output:
+  md_document: default
+  md: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, include = FALSE}
+library(tidyverse)
+library(fields)
+library(ggraph)
+library(tidygraph)
+library(igraph)
+library(Matrix)
+library(purrr)
+library(patchwork)
+library(ivreg)
+library(rdist)
+```
+
+## Introduction
+
+To further demonstrate methods of estimating peer effects, I also simulated a social network in R using R's tidygraph function. Using tidygraph and some other functions, we can randomly generate a social network comprised of nodes (representing individuals) and edges (representing social connections between individuals). Dataframes summarizing both the nodes and edges can be extracted, allowing us to assign information (such as individual characteristics like education or treatment status) to nodes in the network. This document will summarize the generation of social networks, assignment of treatment effects, and different ways to model peer effects and how those peer effects can be measured.
+
+## Social Network Generation And Summary
+
+When generating the social network, I used code taken from  https://www.r-bloggers.com/2020/07/a-social-network-simulation-in-the-tidyverse/. The code generates a social function by using 3 parameters, the poisson, beta and gamma parameters. The poisson parameter influences the number of nodes generated in a network. The beta parameter controls the impact on distance between nodes on the probability of a connection forming between nodes. The gamma parameter controls the impact of a node's weight (which is assigned through a uniform probability function) on forming connections with other nodes. These parameters are used to generate nodes then determine if they are connected using a connection function. The result is then turned into a tidygraph object that can be visualized as a social network, as you can see below.
+
+```{r, echo = FALSE}
+set.seed(903)
+plane <- c(1000, 1000)
+
+poisson_para <- .3 * 10^(-3) # Poisson intensity parameter
+# The beta parameter controls the impact of distance on a connection forming between nodes. If you lower the beta 
+# distance matters more, meaning it is less likely for a connection to form between nodes that are farther away.
+beta <- .45 * 10^3
+# The gamma parameter controls the impact of randomly assigned weights to nodes. A lower gamma results in a lower impact of a node's 
+# weight on the probability of forming connections 
+gamma <- .52
+
+# Number of nodes is Poisson(gamma)*AREA - distributed
+n_nodes <- rpois(1, poisson_para * plane[1] * plane[2])
+# Uniformly distributed weights. I have not played with this as a parameter, but we could discuss the role we want weights to play in 
+# in generating the social network (should nodes have a wider or narrower band of weights, should they be equally weighted?).
+weights <- runif(n_nodes)
+
+# The Poisson process locally yields node positions that are completely random.
+x = plane[1] * runif(n_nodes)
+y = plane[2] * runif(n_nodes)
+
+
+# Connection function. I have not modified this, but should we?
+phi <- function(z) {
+  pmin(z^(-1.8), 1)
+} 
+# Distance matrix needed as input. Creates a matrix from a tibble dataframe that calculates the distance between
+# each point
+dist_matrix <-rdist(tibble(x,y))
+
+# Outer function creates a matrix by applying a function to every combination of data in "weights", in this case multiplication.
+weight_matrix <- outer(weights, weights, FUN="*") # Weight matrix
+
+#This takes the phi function from above and has the connection function be a function of the beta and gamma
+con_matrix_prob <- phi(1/beta * weight_matrix^gamma*dist_matrix^2)# Evaluation
+
+con_matrix <- Matrix(rbernoulli(1,con_matrix_prob), sparse=TRUE) # Sampling
+con_matrix <- con_matrix * upper.tri(con_matrix) # Transform to symmetric matrix
+adjacency_matrix <- con_matrix + t(con_matrix)
+# Create Igraph object
+graph <- graph_from_adjacency_matrix(adjacency_matrix, mode="undirected")
+
+# Make a tidygraph object from it. Igraph methods can still be called on it.
+tbl_graph <- as_tbl_graph(graph)
+
+hub_id <- which.max(degree(graph))
+
+# Add spacial positions, hub distance and degree information to the nodes.
+tbl_graph <- tbl_graph %>%
+  #activate(nodes) tells tidygraph to apply the following steps to only nodes
+  activate(nodes) %>%
+  mutate(
+    x = x,
+    y = y,
+    hub_dist = replace_na(bfs_dist(root = hub_id), Inf),
+    degree = degree(graph),
+    friends_of_friends = replace_na(local_ave_degree(), 0),
+    cluster = as.factor(group_infomap())
+  )
+
+#Adding the below code so tbl_graph can be incorporated into social_network_sim.R
+sim_graph = tbl_graph
+# Add coord_fixed() for fixed axis ratio!
+basic <- tbl_graph %>%
+  # Note that is uses ggraph instead of ggplot. Creates a dataframe from x coordinate of the point (extracted by V(.)$x) and the
+  # y coordinate (extracted by V(.)$y)
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = degree, color = degree))  +
+  scale_color_gradient(low = "dodgerblue2", high = "firebrick4") +
+  coord_fixed() +
+  guides(size = FALSE)
+#To see if a network is "interesting", I usually look at the visualization and make sure there are not too many nodes that are
+#isolated or too heavily connected.
+basic
+# This is the end of code that was explicitly taken from the webpage on generating social networks.
+
+```
+
+Nodes in the network are shaded by the number of edges they have, with more "connected" nodes being redder. We can also randomly assign nodes in the network a "treatment" status of 0 and 1, as well as other characteristics, such as "education".
+```{r, echo = FALSE}
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(treated = rbinom(n(), 1, 0.05),
+         treated_status = as.factor(treated),
+         shape_type = as_factor(ifelse(treated == 1, 2, 1)))
+
+treated = tbl_graph %>%
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = 0.5, color = treated_status))  +
+  scale_size_continuous(range = c(0.5, 2.5))+
+  coord_fixed() +
+  guides(size = FALSE) +
+  scale_color_manual(values = c("1" = "firebrick4",
+                                "0" = "dodgerblue2"))
+# We can also other characteristics to the nodes, such as gender, education, etc.
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(Male = as.factor(rbinom(n(), 1, 0.5)),
+         educ = rnorm(n(), 13, 2.5))
+treated
+```
+
+Since our goal is to study peer effects (in this case the effect of having treated peers), I also measured how many of a node's first order peers (peers it has a direction connection with) are treated. This can also be expanded into 2nd and 3rd degree peers. This is visualized below, with the graphs changing in color with the number of treated peers a node has (circular nodes are untreated, triangular are treated)
+```{r, echo = FALSE}
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(neighborhood_1 = local_members(order = 1),
+         neighborhood_2 = local_members(order = 2),
+         neighborhood_3 = local_members(order = 3)) 
+
+
+# alternative way to calculate number of peers treated
+#Z = node_data$treated
+#num_treated_peers_first = adjacency_matrix %*% Z
+#cbind(num_treated_peers_first, node_data$first_order)
+
+
+#Then the following functions find out how many of the 1st, 2nd, and 3rd order neighbors received treatment and add it 
+#as a value in the node dataframe of the tidygraph.
+
+
+#The following function finds the number of first order neighbors that are treated (excluding the node itself).
+Treated_neighbors_first = function(tidy_graph) {
+  neighbor_treat = c()
+  node = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  node_rows = nrow(node)
+  for (i in 1:node_rows){
+    treated_count = 0
+    extract = node$neighborhood_1[i]
+    extracted_vector = extract[[1]]
+    for (j in extracted_vector){
+      if(node$treated[j] == 1) {
+        treated_count = treated_count + 1
+      }
+    }
+    neighbor_treat[i] = treated_count
+  }
+  tidy_graph = tidy_graph %>%
+    activate(nodes) %>%
+    mutate(first_order= neighbor_treat - treated)
+  return(tidy_graph)
+}
+
+#Now we will do the number of 2nd order neighbors (excluding the node itself and 1st order neighbors).
+Treated_neighbors_second = function(tidy_graph) {
+  neighbor_treat = c()
+  node = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  node_rows = nrow(node)
+  for (i in 1:node_rows){
+    treated_count = 0
+    extract = node$neighborhood_2[i]
+    extracted_vector = extract[[1]]
+    for (j in extracted_vector){
+      if(node$treated[j] == 1) {
+        treated_count = treated_count + 1
+      }
+    }
+    neighbor_treat[i] = treated_count
+  }
+  tidy_graph = tidy_graph %>%
+    activate(nodes) %>%
+    mutate(second_order= neighbor_treat - treated - first_order)
+  return(tidy_graph)
+}
+
+#Now we will do the number of 3rd order neighbors (excluding the node itself, 1st order neighbors, and 2nd order neighbor). 
+Treated_neighbors_third = function(tidy_graph) {
+  neighbor_treat = c()
+  node = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  node_rows = nrow(node)
+  for (i in 1:node_rows){
+    treated_count = 0
+    extract = node$neighborhood_3[i]
+    extracted_vector = extract[[1]]
+    for (j in extracted_vector){
+      if(node$treated[j] == 1) {
+        treated_count = treated_count + 1
+      }
+    }
+    neighbor_treat[i] = treated_count
+  }
+  tidy_graph = tidy_graph %>%
+    activate(nodes) %>%
+    mutate(third_order= neighbor_treat - treated - first_order - second_order)
+  return(tidy_graph)
+}
+
+#Finally, include a self check to make sure the function works that finds the total number of treated neighbors within
+# 3 degrees. This should equal the sum of the 1st, 2nd, and 3rd order columns.
+Treated_neighbors_Total = function(tidy_graph) {
+  neighbor_treat = c()
+  node = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  node_rows = nrow(node)
+  for (i in 1:node_rows){
+    treated_count = 0
+    extract = node$neighborhood_3[i]
+    extracted_vector = extract[[1]]
+    for (j in extracted_vector){
+      if(node$treated[j] == 1) {
+        treated_count = treated_count + 1
+      }
+    }
+    neighbor_treat[i] = treated_count
+  }
+  tidy_graph = tidy_graph %>%
+    activate(nodes) %>%
+    mutate(total= neighbor_treat - treated)
+  return(tidy_graph)
+}
+#Combine them all into a single function
+Treated_neighbors = function(tidy_graph) {
+  first_order = Treated_neighbors_first(tidy_graph)
+  second_order = Treated_neighbors_second(first_order)
+  third_order = Treated_neighbors_third(second_order)
+  final = Treated_neighbors_Total(third_order)
+  return(final)
+}
+tbl_graph = Treated_neighbors(tbl_graph)
+# Now we have information about peers recorded in the tidygraph object.
+node_data = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+# We can also include visuals of different peers
+peer_first = tbl_graph %>%
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = 0.5, color = first_order, shape = shape_type))  +
+  scale_size_continuous(range = c(0.5, 2.5))+
+  coord_fixed() +
+  guides(size = FALSE) +
+  scale_color_gradient(high = "firebrick4", low = "dodgerblue2")
+peer_second = tbl_graph %>%
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = 0.5, color = second_order, shape = shape_type))  +
+  scale_size_continuous(range = c(0.5, 2.5))+
+  coord_fixed() +
+  guides(size = FALSE) +
+  scale_color_gradient(high = "firebrick4", low = "dodgerblue2")
+peer_third = tbl_graph %>%
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = 0.5, color = third_order, shape = shape_type))  +
+  scale_size_continuous(range = c(0.5, 2.5))+
+  coord_fixed() +
+  guides(size = FALSE) +
+  scale_color_gradient(high = "firebrick4", low = "dodgerblue2")
+peer_first 
+peer_second 
+peer_third
+```
+
+## Peer Effects And Estimating Outcomes
+
+Now that we have assigned treatment status and the number of treated peers, we can generate outcomes based on treatment status and the status of peers. There are several ways to accomplish this, so I will go through each and go over the effectiveness of linear regressions in estimating peers effects in these situations. In all these situations, both being treated and having treated peers affects the measured outcome.
+
+### Threshold Approach
+
+The first approach assumes that having the number treated first order peers over a certain threshold triggers the peer effect. For this simulation, the threshold will kick if a node has a single treated peer. Outcomes are sampled from a normal distribution. The baseline (no effects from treatment or peers) is sampled from a normal distribution of mean 5, the treated from a normal distribution of mean 10, and the peer effect from a normal distribution of mean 7.5, so the marginal effect of treatment is 5 and of having a treated peer is 2.5. I also generated an outcome where there are no peer effects (node outcomes are sampled from either the treated or non-treated normal distribution) as a comparison. 
+
+```{r, include = FALSE}
+node_frame = tbl_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+nodes_numbers = nrow(node_frame)
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(peer_first = ifelse(first_order >= 1 & treated == 0, 1, 0),
+         outcome_no_peer = ifelse(treated == 1, rnorm(nodes_numbers, 10, 0.5), rnorm(nodes_numbers, 5, 0.5)),
+         outcome_peer = ifelse(treated == 1, rnorm(nodes_numbers, 10, 0.5), 
+                               ifelse(first_order >= 1, rnorm(nodes_numbers, 7.5, 0.5), rnorm(nodes_numbers, 5, 0.5))))
+dgp_test = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+
+# In this example, we have a no peer DGP and a DGP where the presence of at at least 1 first order peer increases
+# the mean of the untreated sample distribution by 2.5. The regression of outcome on treated and first order
+# peer produces the following results:
+
+no_peer = summary(lm(outcome_no_peer ~ treated + first_order, dgp_test))
+peer_first = summary(lm(outcome_peer ~ treated + first_order, dgp_test))
+peer_thresh = summary(lm(outcome_peer ~ treated + peer_first, dgp_test))
+```
+
+In the no_peer regression, I regression outcom_no_peer on treated status and an indicator for treated status, no_peer.
+
+```{r, echo = FALSE}
+no_peer
+```
+
+The linear regression  effectively identifies the lack of peer effects, with first_order not having a statistically significant effect. 
+
+In the next regression, I regress peer_outcome on treated status and if an individual has at least 1 treated peer.
+
+```{r, echo = FALSE}
+peer_first
+```
+
+Again, the linear regression appears to identify a peer effect, although it slightly underestimates the true effect of having at least 1 treated peer. To test if this bias is significant, I also simulated the above data generating process 
+```{r, include = FALSE}
+sim_graph = tbl_graph
+sim_graph = sim_graph %>%
+  activate(nodes) %>%
+  group_by(cluster) %>%
+  mutate(group_shock = rnorm(1, 5, 2.5)) %>%
+  ungroup()
+
+thresh_test = function(tidy_graph, num_sims, treat_prob){
+  set.seed(7292024)
+  node_frame = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  nodes_numbers = nrow(node_frame)
+  est_coeff = c()
+  for (i in 1:num_sims) {
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(treated = rbinom(n(), 1, treat_prob),
+             treated_status = as.factor(treated))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(neighborhood_1 = local_members(order = 1),
+             neighborhood_2 = local_members(order = 2),
+             neighborhood_3 = local_members(order = 3)) 
+    tidy_graph = Treated_neighbors(tidy_graph)
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(peer_first = ifelse(first_order >= 1 & treated == 0, 1, 0),
+             outcome_peer = ifelse(treated == 1, rnorm(nodes_numbers, 10, 0.5), 
+                                   ifelse(first_order >= 1, rnorm(nodes_numbers, 7.5, 0.5), rnorm(nodes_numbers, 5, 0.5))))
+    dgp = tidy_graph %>%
+      activate(nodes) %>%
+      as_tibble()
+    est_coeff[i] = summary(lm(outcome_peer ~ treated + peer_first, dgp))$coefficients[3,1]
+  }
+  coeff = data.frame(
+    est_coeff = est_coeff
+  )
+  return(coeff)
+} 
+coeff = thresh_test(sim_graph, 1000, 0.05)
+```
+
+A histogram of the estimated peer effects (the coefficient of peer_first) calculated by this simulation is shown below. The red lines mark the 5th and 95th percentile of estimate coefficients and the purple line is the mean of all the coefficients
+
+```{r, echo = FALSE}
+result_graph = ggplot(coeff) +
+  geom_histogram(aes(x = est_coeff)) +
+  geom_vline(xintercept = 2.5, color = "blue") +
+  geom_vline(xintercept = quantile(coeff$est_coeff, c(0.05, 0.95))[1], color = "red") +
+  geom_vline(xintercept = quantile(coeff$est_coeff, c(0.05, 0.95))[2], color = "red") +
+  geom_vline(xintercept = mean(coeff$est_coeff), color = "purple")
+result_graph
+
+```
+
+As can be seen, the mean is at or very near to 2.5, indicating that linear regression is an effective method for estimate peer effects in this data generating process.
+
+### Continous Approach
+
+However, although this threshold approach to generating data is simple, it may not be realistic. A more continous approach, where the size of the peer effect a node experience depends on the number of treated peers the node has, may be more appropriate. To simulate that situation, peer effects are simulated by sampling from a normal distribution where the mean of the distribution for each node equals 5 + 5*treated + 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order). A node's mean is then a function of whether a node is treated and the number of first, second, and third order peers it has. I have modeled this DGP and visualized it with the graph below (again, triangles are treated nodes and circles untreated nodes)
+
+```{r, echo = FALSE}
+tbl_graph = tbl_graph %>%
+  mutate(outcome_all_peers = rnorm(n(), 5 + 5*treated + 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order), 0.5))
+peer_effects = c((3.5), (0.75), (.25))
+
+dgp_data = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+
+degree_graph = tbl_graph %>%
+  ggraph(layout = tibble(V(.)$x, V(.)$y)) +
+  geom_edge_link(width = .1) +
+  geom_node_point(aes(size = 1, color = outcome_all_peers, shape = shape_type))  +
+  scale_size_continuous(range = c(0.5, 2.5))+
+  coord_fixed() +
+  guides(size = FALSE) +
+  scale_color_gradient(high= "firebrick4", low = "dodgerblue2")
+
+degree_graph
+```
+
+We can also test the effectiveness of linear regression in identifying peer effects by running the regression outcome_all_peers ~ treated + first_order + second_order + third_order. 
+```{r, echo = FALSE}
+peer_con = summary(lm(outcome_all_peers ~ treated + first_order + second_order + third_order, dgp_data))
+
+
+con_results = matrix(c((3.5), 
+                       (0.75), 
+                       (.25), 
+                       peer_con$coefficients[3,1], 
+                       peer_con$coefficients[4,1], 
+                       peer_con$coefficients[5,1]),
+                     nrow = 2,
+                     ncol = 3,
+                     byrow = TRUE)
+
+colnames(con_results) = c( "First Order", 
+                           "Second Order", 
+                           "Third Order")
+
+rownames(con_results) = c("Actual Effect", "Estimated Effect")
+
+con_results
+
+```
+These results suggests that linear regression can produce estimates of peer effects close to the true value. To confirm this, I ran the above regression 500 times, randomly generating a new  treatment vector each time and recording the estimated coefficients of first order, second order, and third order peers.
+
+```{r, include = FALSE}
+con_test = function(tidy_graph, num_sims, treat_prob){
+  set.seed(42029270)
+  node_frame = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  nodes_numbers = nrow(node_frame)
+  first_coeff = c()
+  second_coeff = c()
+  third_coeff = c()
+  
+  for (i in 1:num_sims) {
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(treated = rbinom(n(), 1, treat_prob),
+             treated_status = as.factor(treated))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(neighborhood_1 = local_members(order = 1),
+             neighborhood_2 = local_members(order = 2),
+             neighborhood_3 = local_members(order = 3))
+    tidy_graph = Treated_neighbors(tidy_graph)
+    #Trying something out; adding this to test how effective linear in-mean is
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(outcome_all_peers = rnorm(nodes_numbers, 5 + 5*treated + 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order), 0.5))
+    dgp = tidy_graph %>%
+      activate(nodes) %>%
+      as_tibble()
+    first_coeff[i] = summary(lm(outcome_all_peers ~ treated + first_order + second_order + third_order, dgp))$coefficients[3,1]
+    second_coeff[i] = summary(lm(outcome_all_peers ~ treated + first_order + second_order + third_order, dgp))$coefficients[4,1]
+    third_coeff[i] = summary(lm(outcome_all_peers ~ treated + first_order + second_order + third_order, dgp))$coefficients[5,1]
+
+  }
+  coeff = data.frame(
+    first_coeff = first_coeff,
+    second_coeff = second_coeff,
+    third_coeff = third_coeff
+  )
+  return(coeff)
+} 
+# Should we also try to asses if the estimate of "treated" is biased as well?
+test = con_test(sim_graph, 1000, 0.05)
+```
+
+Comparing the mean of the first degree peer coefficients with the actual effect of first degree peers, demonstrates that linear regression has little bias in its estimate.
+
+```{r, echo = FALSE}
+first_est_eff = mean(test$first_coeff)
+first_est_sd = (var(test$first_coeff))^0.5
+hyp_test = (first_est_eff - 3.5)/first_est_sd
+first_bias = first_est_eff - 3.5
+first_bias
+```
+The bias is very small in this situation. This can also be seen in the histogram of the coefficients, with the mean, 5th, and 95th percentiles of the estimates marked.
+
+```{r, echo = FALSE}
+result_graph_first = ggplot(test) +
+  geom_histogram(aes(x = first_coeff)) +
+  geom_vline(xintercept = 3.5, color = "blue") +
+  geom_vline(xintercept = quantile(test$first_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(test$first_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(test$first_coeff) , color = "purple")
+result_graph_first
+```
+
+We can repeat this same approach for second degree peers.
+
+```{r, echo = FALSE}
+result_graph_second = ggplot(test) +
+  geom_histogram(aes(x = second_coeff)) +
+  geom_vline(xintercept = .75, color = "blue") +
+  geom_vline(xintercept = quantile(test$second_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(test$second_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(test$second_coeff) , color = "purple")
+second_est_eff = mean(test$second_coeff)
+second_est_sd = (var(test$second_coeff))^0.5
+second_hyp_test = (second_est_eff - .75)/second_est_sd
+second_bias = second_est_eff - 0.75
+second_bias
+result_graph_second
+```
+
+And third degree peers.
+
+```{r, echo = FALSE}
+result_graph_third = ggplot(test) +
+  geom_histogram(aes(x = third_coeff)) +
+  geom_vline(xintercept = .25, color = "blue") +
+  geom_vline(xintercept = quantile(test$third_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(test$third_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(test$third_coeff) , color = "purple")
+third_est_eff = mean(test$third_coeff)
+third_est_sd = (var(test$third_coeff))^0.5
+third_hyp_test = (third_est_eff - .25)/third_est_sd
+third_bias = third_est_eff - 0.25
+third_bias
+result_graph_third
+```
+
+### Group Approach
+
+Another data generating process I examined was the proportion of treated peers in a group. For some context, when R generated the social network, nodes were grouped into clusters using the group_infomap() function, which groups nodes by minimizing description length. If we see this clusters as representing groups such as classrooms or social media groups (like FB groups), we could also model peer effects depending on the number of treated peers in an individual's group. In this data generating process, outcomes of treated individuals are sampled from a normal distribution with mean 5 + 5 * (treated) +  4*(mean_treat), with mean_treat being the proportion of treated nodes in a cluster. The estimated marginal effect of mean_treat is then 4. Regressing outcome on treated and mean_trear gives the below results 
+
+```{r, echo = FALSE}
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  group_by(cluster) %>%
+  mutate(mean_treat = mean(treated)) %>%
+  ungroup()
+tbl_graph = tbl_graph %>%
+  activate(nodes)  %>%
+  mutate(cluster_peer_outcome =  rnorm(n(), 5 + 5*treated + 4*(mean_treat)))
+dgp_data = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+summary(lm(cluster_peer_outcome ~ treated + mean_treat, dgp_data))
+
+# This gives us some interesting results (and counter intuitive) results. 
+# Also, when peer effects do not exist, this linear regression does identify a statistically significant effect.
+# Lets add a visualization. First, we can see the clusters by color. 
+```
+
+The coefficient for mean_treat appears to slightly underestimate the true marginal effect of mean_treat. We can test if this bias is significant by running multiple simulations with different treatment vectors.
+
+```{r, include = FALSE}
+group_test = function(tidy_graph, num_sims, treat_prob){
+  set.seed(2912024)
+  node_frame = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  nodes_numbers = nrow(node_frame)
+  rate_coeff = c()
+  for (i in 1:num_sims) {
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(treated = rbinom(n(), 1, treat_prob),
+             treated_status = as.factor(treated))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      group_by(cluster) %>%
+      mutate(mean_treat = mean(treated)) %>%
+      ungroup()
+    tidy_graph = tidy_graph %>%
+      activate(nodes)  %>%
+      mutate(cluster_peer_outcome = rnorm(n(), 5 + 5*treated + 4*(mean_treat), 0.5))
+    dgp = tidy_graph %>%
+      activate(nodes) %>%
+      as_tibble()
+    rate_coeff[i] = summary(lm(cluster_peer_outcome ~ treated + mean_treat, dgp))$coefficients[3,1]
+  }
+  coeff = data.frame(
+    rate_coeff = rate_coeff
+  )
+  return(coeff)
+} 
+rate_df = group_test(sim_graph, 5000, 0.05)
+```
+```{r, echo = FALSE}
+rate_result_graph = ggplot(rate_df) +
+  geom_histogram(aes(x = rate_coeff)) +
+  geom_vline(xintercept = 4, color = "blue") +
+  geom_vline(xintercept = quantile(rate_df$rate_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(rate_df$rate_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(rate_df$rate_coeff), color = "purple")
+rate_est_eff = mean(rate_df$rate_coeff)
+rate_bias = rate_est_eff - 4
+rate_est_eff
+rate_bias
+```
+
+The mean of the coefficients for rate_treat is very close to 4 and has a small bias. We can also graph the estimated coefficients to look at their spread. The blue line is the true effect, the purple is the mean of the coefficients, and the red lines mark the 5th and 95th percentiles. As can be seen, 90% of the coefficients are estimated with 0.5 of the true effect.
+
+```{r, echo = FALSE}
+rate_result_graph
+```
+
+### Group Shocks
+
+One potential concern for identifying peer effects is that linear regressions that attempt to identify peer effects may just be capturing shocks that are specific to groups rather than true peer effects. To test this, I also ran a data generating process that simulated group shocks and tested if regressing outcomes on treated, first_order, second_order, and third_order and regressing outcome on treated and mean_treat identified peer effects when they did not exist. 
+```{r, echo = FALSE}
+
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  group_by(cluster) %>%
+  mutate(cluster_shock = rnorm(n(), 2, 0.5))
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(outcome_cluster = outcome_no_peer + cluster_shock)
+dgp_data = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+summary(lm(outcome_cluster ~ treated + first_order + second_order + third_order, dgp_data))
+summary(lm(outcome_cluster ~ treated + mean_treat, dgp_data))
+```
+
+In both regression, the group shocks do "break" the linear regression model and identify peer effects when they don't exist. To further support this, I ran the above regressions 500 times, randomizing the treatment vector each time.
+
+```{r, include = FALSE}
+shock_test = function(tidy_graph, num_sims, treat_prob){
+  set.seed(2912024)
+  node_frame = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  nodes_numbers = nrow(node_frame)
+  first_coeff = c()
+  second_coeff = c()
+  third_coeff = c()
+  rate_coeff = c()
+  for (i in 1:num_sims) {
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(treated = rbinom(n(), 1, treat_prob),
+             treated_status = as.factor(treated))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(neighborhood_1 = local_members(order = 1),
+             neighborhood_2 = local_members(order = 2),
+             neighborhood_3 = local_members(order = 3))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      group_by(cluster) %>%
+      mutate(shock = rnorm(1, 5, 1),
+             rate_treat = mean(treated)) %>%
+      ungroup()
+    tidy_graph = tidy_graph %>%
+      activate(nodes)  %>%
+      mutate(outcome_all_peers = rnorm(nodes_numbers, 5 + 5*treated + 0.5*shock, 0.5))
+    dgp = tidy_graph %>%
+      activate(nodes) %>%
+      as_tibble()
+    reg = summary(lm(outcome_all_peers ~ treated + first_order + second_order + third_order, dgp))
+    mean_reg = summary(lm(outcome_all_peers ~ treated + rate_treat, dgp))
+    first_coeff[i] = reg$coefficients[3,1]
+    second_coeff[i] = reg$coefficients[4,1]
+    third_coeff[i] = reg$coefficients[5,1]
+    rate_coeff[i] = mean_reg$coefficient[3,1]
+  }
+  coeff = data.frame(
+    rate_coeff = rate_coeff,
+    first_coeff = first_coeff,
+    second_coeff = second_coeff,
+    third_coeff = third_coeff
+  )
+  return(coeff)
+} 
+shock_df = shock_test(sim_graph, 500, 0.05)
+```
+
+I will just focus on the coefficients of the first degree peer and the rate coefficients. Starting with the first degree peer, the average of the estimate coefficients is very close to 0 and a small bias.
+
+```{r, echo = FALSE}
+rate_shock_graph = ggplot(shock_df) +
+  geom_histogram(aes(x = rate_coeff)) +
+  geom_vline(xintercept = 0, color = "blue") +
+  geom_vline(xintercept = quantile(shock_df$rate_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(shock_df$rate_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(shock_df$rate_coeff), color = "purple")
+rateshock_est_eff = mean(shock_df$rate_coeff)
+rateshock_bias = rateshock_est_eff - 0
+first_shock_est_eff = mean(shock_df$first_coeff)
+first_shock_bias = first_est_eff - 0
+first_shock_graph = ggplot(shock_df) +
+  geom_histogram(aes(x = first_coeff)) +
+  geom_vline(xintercept = 0, color = "blue") +
+  geom_vline(xintercept = quantile(shock_df$first_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(shock_df$first_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(shock_df$first_coeff), color = "purple")
+rateshock_est_eff
+rateshock_bias
+rate_shock_graph
+```
+ 
+Then we will move onto the first degree peer coefficient.
+
+```{r, echo = FALSE}
+first_shock_est_eff
+first_shock_bias
+first_shock_graph
+```
+
+In both cases, it appears that the linear regression correctly identifies the lack of peer effects.
+
+## Potential Errors
+
+Finally, I wanted to look at the effectiveness of linear regression when the social network cannot be observed but groups can be. To do this, I will use the continuous data generating process but will not regress the outcome on treated and the number of treated peers a node has. Instead, I will estimate the peer effect by finding the difference between the coefficients of treated  from the OLS and 2SLS regressions of outcomes on treated. In the latter regression, treatment status is instrumented by cluster membership. This is the method described by Angrist in the peril's of peer effects. This approach should estimate the average treatment effect (ATE) of having treated peers. To find the "true" baseline, I added a variable act_peer_effect, the actual effect of having treated peers and took its means for the social network. As that is the average effect of treated peers, it should be close to the ATE estimated by finding the difference between OLS and 2SLS regression coefficients. 
+
+```{r, echo = FALSE}
+tbl_graph = tbl_graph %>%
+  activate(nodes) %>%
+  mutate(act_peer_effect = 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order))
+df = tbl_graph %>%
+  activate(nodes) %>%
+  as_tibble()
+cluster_OLS = summary(lm(outcome_all_peers ~ treated, data = df))
+cluster_IV = summary(ivreg(outcome_all_peers~treated|cluster, data = df))
+true_reg = summary(ivreg(outcome_all_peers ~ treated + first_order + second_order + third_order, data = df))
+mean(df$act_peer_effect)
+est_ATE = (cluster_IV$coefficients[2,1] - cluster_OLS$coefficients[2,1])/(1 - summary(lm(treated ~ cluster, df))$r.squared)
+est_ATE
+```
+
+The first value is the true ATE of treated peers while the second value is the estimate. As you can see, Angrist's approach overestimates the ATE. To further demonstrate this, I'm going to run another simulation randomly changing the treatment vector.
+
+```{r, include = FALSE}
+con_group_test = function(tidy_graph, num_sims, treat_prob){
+  set.seed(42029270)
+  node_frame = tidy_graph %>%
+    activate(nodes) %>%
+    as_tibble()
+  nodes_numbers = nrow(node_frame)
+  first_coeff = c()
+  second_coeff = c()
+  third_coeff = c()
+  OLS_coeff = c()
+  SLS_coeff = c()
+  peer_effect = c()
+  r_sq = c()
+  ATE = c()
+  rate_coeff = c()
+  
+  for (i in 1:num_sims) {
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(treated = rbinom(n(), 1, treat_prob),
+             treated_status = as.factor(treated))
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(neighborhood_1 = local_members(order = 1),
+             neighborhood_2 = local_members(order = 2),
+             neighborhood_3 = local_members(order = 3))
+    tidy_graph = Treated_neighbors(tidy_graph)
+    tidy_graph = tidy_graph %>%
+      group_by(cluster) %>%
+      mutate(rate_treated = mean(treated)) %>%
+      ungroup()
+    #Trying something out; adding this to test how effective linear in-mean is
+    tidy_graph = tidy_graph %>%
+      activate(nodes) %>%
+      mutate(outcome_all = rnorm(nodes_numbers, 5 + 5*treated + 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order), 0.5),
+             act_peer_effect = 3.5*(first_order) + 0.75*(second_order) + 0.25*(third_order))
+    dgp = tidy_graph %>%
+      activate(nodes) %>%
+      as_tibble()
+    OLS = summary(lm(outcome_all ~ treated, data = dgp))
+    SLS = summary(ivreg(outcome_all ~ treated|cluster, data = dgp))
+    rate_reg = summary(lm(outcome_all ~ treated + rate_treated, data = dgp))
+    True = summary(lm(outcome_all ~ treated + first_order + second_order + third_order, data = dgp))
+    r_sq = summary(lm(treated ~ cluster, data = dgp))$r.squared
+    diff = SLS$coefficients[2,1] - OLS$coefficients[2,1]
+    OLS_coeff[i] = OLS$coefficients[2,1]
+    SLS_coeff[i] = SLS$coefficients[2,1]
+    peer_effect[i] = (diff)*(1/(1 - r_sq)) 
+    first_coeff[i] = True$coefficients[3,1]
+    second_coeff[i] = True$coefficients[4,1]
+    third_coeff[i] = True$coefficients[5,1]
+    ATE[i] = mean(dgp$act_peer_effect)
+    rate_coeff[i] = rate_reg$coefficients[3,1]
+  }
+  coeff = data.frame(
+    OLS_coeff = OLS_coeff,
+    SLS_coeff = SLS_coeff,
+    first_coeff = first_coeff,
+    second_coeff = second_coeff,
+    third_coeff = third_coeff,
+    ATE = ATE,
+    peer_effect = peer_effect,
+    rate_coeff = rate_coeff
+  )
+  return(coeff)
+} 
+
+# Lets look at the 2SLS and OLS difference
+testwork = con_group_test(sim_graph, 500, 0.05)
+```
+
+Plotting a histogram of these results shows Angrist's methods consistently overestimate the ATE of peers.
+
+```{r, echo = FALSE}
+# Lets look at the peer effect calculated through Angrist's method
+peer_result_graph = ggplot(testwork) +
+  geom_histogram(aes(x = peer_effect)) +
+  geom_vline(xintercept = quantile(testwork$peer_effect,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(testwork$peer_effect,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(testwork$peer_effect), color = "blue") +
+  geom_vline(xintercept = mean(testwork$ATE), color = "purple")
+# Lets look at the mean coefficient
+test_result_graph_mean = ggplot(testwork) +
+  geom_histogram(aes(x = rate_coeff)) +
+  geom_vline(xintercept = quantile(testwork$rate_coeff,c(0.05, 0.95))[1] , color = "red") +
+  geom_vline(xintercept = quantile(testwork$rate_coeff,c(0.05, 0.95))[2] , color = "red") +
+  geom_vline(xintercept = mean(testwork$rate_coeff), color = "blue") +
+  geom_vline(xintercept = mean(testwork$ATE), color = "purple")
+peer_result_graph
+test_result_graph_mean 
+```
+
+
