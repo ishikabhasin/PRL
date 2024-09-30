@@ -1,0 +1,538 @@
+---
+title: "Perils of Peer Effects Write Up and Simulation"
+author: "Jacob McGill"
+date: "2024-05-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, include = FALSE}
+library(AER)
+library(systemfit)
+library(fastDummies)
+library(ivreg)
+library(tidyverse)
+library(sandwich)
+library(lmtest)
+```
+
+## Perils of Peer Effects Write Up and Simulation
+
+Angrist's "The Perils of Peer Effects" (2014) discusses potential pitfalls when identifying the causal effects of peer characteristics on outcomes. This write up briefly summarizes the potential issues discussed, Angrist’s proposed solutions, and provides simulations to highlight both.
+
+# Linear In-Means
+
+Angrist first discusses a linear in means model of peer effects. The most basic example of this equation takes the form $y_{ij}=\beta_0+\beta_1 \bar{y}_j+ \epsilon_{ij}$, for individual i in group j, with $\bar{y}_j$ being the mean value of y for group j. However, this equation always produces a $\beta_1$ with a value of 1. This can be seen with the following simulation. In this simulation, 3 groups of equal size were assigned a value of "1" for the variable "Yes" at different probabilities (so members of Group A had a probability of 0.5 of being assigned 1, group B had a proability of 0.2, etc.). The mean value of "Yes" for each each group was then calculated and assigned to members of the groups, recorded as "rate". "Yes" was then regressed against "rate" to produce the results below:
+
+```{r, include = FALSE}
+#Coefficient of unity
+#First, I am going to simulate the "smoke a lot of dope" example from Angrist's paper.
+#I created 3 groups of equal size with a indicator variable (yes") randomly generated for each group
+#at a different rate. Group membership and the probability of the indicator variable being 1
+# was also recorded in each data frame. I then combined the dataframes into one frame.
+Group_A = data.frame(yes = rbinom(n = 100000, size = 1, prob = 0.5), Group = "A", rate = 0.5)
+Group_A = Group_A %>% 
+  mutate(rate = mean(yes))
+Group_B = data.frame(yes = rbinom(n = 100000, size = 1, prob = 0.2), Group = "B", rate = 0.2)
+Group_B = Group_B %>% 
+  mutate(rate = mean(yes))
+Group_C = data.frame(yes = rbinom(n = 100000, size = 1, prob = 0.8), Group = "C", rate = 0.8)
+Group_C = Group_C %>% 
+  mutate(rate = mean(yes))
+combined_groups = rbind(Group_A, Group_B, Group_C)
+#After combining the dataframes, regressed "yes" onto the rate for the group 
+#an observation was part of
+combined_reg = lm(yes ~ rate, data = combined_groups)
+summary(combined_reg)
+#As can be seen, this produces a coefficient of 1, as Angrist predicted.
+```
+
+```{r, echo = FALSE}
+#After combining the dataframes, regressed "yes" onto the rate for the group 
+#an observation was part of
+combined_reg = lm(yes ~ rate, data = combined_groups)
+summary(combined_reg)
+#As can be seen, this produces a coefficient of 1, as Angrist predicted.
+```
+
+This regression produces a coefficient of 1, as predicted by Angrist.
+
+A more nuanced model controls for both individual and peer characteristics, such as the model $y= \beta\mu_{(y\big|z)}+ \gamma x$, where y is the outcome of interest, x is an individual covariate, and z is group membership. This model attempts to attempt identify the peer effect of the mean of y in group z on an individual’s y, holding z constant. This equation can be rewritten to the form $E[y|z]=\frac{\gamma}{(1-\beta)}\ E[x|z]$, meaning $\beta$ in this equation acts as a "social multiplier" that magnifies the effect of individual covariate changes. Angrist shows that multiplier $\frac{1}{1-\beta}$ approximately equals the ratio of the 2SLS to OLS estimand of the effect of individual covariate x on y (with being instrumented by group membership). As a result, $\beta$ just captures the divergence between the OLS and 2SLS estimates of the effect of x on y, which may exist for reasons other than peer effects, such as weak instruments in 2SLS that do not strongly affect the first stage. To demonstrate how this can occur, I will simulate the Dartmouth high school drinking paper Angrist discusses. In this example, I randomly generated a dummy variable "high_school", indicating whether that individual drank in high school. I used "high_school" to determine the probability of whether someone joined Greek life to capture the influence of high school drinking on joining Greek life, marked by the indicator variable "greek". In this simulation, there are no peer effects on high school drinking. Individuals were then assigned to groups of "dorm", "floor", and "room", with each grouping getting more and more coarse. I then ran an OLS regression of "high_school" against "Greek". I then ran 3 more 2SLS regressions of "high_school" against ""Greek", instrumenting "high_school" with with group membership. The results of these regressions are in the table below, with the coefficients of OLS, 2SLS, their ratio, and their :
+```{r, include = FALSE}
+population = rbinom(n = 10000, size = 1, prob = 0.5)
+student_body = data.frame(high_school = population)
+student_body = student_body %>%
+  mutate(greek = ifelse(high_school == 1, 
+                        yes = rbinom(n = 10000, size = 1, prob = 0.6), 
+                        no=rbinom(n = 10000, size = 1, prob = 0.4)),)
+body_summary = student_body %>%
+  group_by(high_school) %>%
+  summarize(mean_greek = mean(greek))
+lm(greek~high_school, data = student_body)
+# Notes from David: Combine this code with the randomization code. Come up with a similar peer effect test 
+# Answering the same question but different statistical paradigm. Next steps would be looking at randomization.
+#After the population had been created, I used the following grouper function, which 
+#I found on Stack Exchange, to split the population into groups of different levels. First
+# I split the population into 7 groups, to represent 7 dorms. After that, I split
+# each of the seven groups into 5 subgroups, to capture the floor of each dorm. Finally,
+# I split each floor into 20 subgroups, capturing a dorm room. This model ensures that we can
+# compare estimates of peer effects across more coarse groupings.
+grouper <- function(df, n) {
+  
+  # create a random number for each row
+  random <- sample(1:nrow(df), replace = FALSE, nrow(df))
+  
+  # divide the random number by the group size
+  df$group_number <- ceiling(random / (nrow(df) / n))
+  
+  #Add dummy variables for group membership
+  df = dummy_cols(df, select_columns = "group_number")
+  
+  return(df)  
+}
+grouper_no_dummy <- function(df, n) {
+  
+  # create a random number for each row
+  random <- sample(1:nrow(df), replace = FALSE, nrow(df))
+  
+  # divide the random number by the group size
+  df$group_number <- ceiling(random / (nrow(df) / n))
+  
+  return(df)  
+}
+test = grouper(student_body, 5)
+#xtabs(~group_number, test)
+
+
+#Instrument on Dorm rooms
+Dorm_Group = grouper_no_dummy(student_body, 7)
+colnames(Dorm_Group)[which(names(Dorm_Group) == "group_number")] <- "Dorm"
+Dorm_Group = Dorm_Group %>%
+  mutate(dorm_assignment = paste("Dorm", Dorm))
+  #I realize this naming scheming is a bit clunky, but I added it to ensure that
+  # we can differentiate between floors on different dorms. I took this approach for
+  # rooms too.
+Dorm_Group = Dorm_Group %>%
+  group_by(Dorm) %>%
+  mutate(group_number = ceiling(row_number() / (n() / 5)))
+# I added this to check that floors are equally distributed across dorms
+#xtabs(~room_assignment + Dorm, Dorm_Group)
+# They appear to be so, so we can move on
+colnames(Dorm_Group)[which(names(Dorm_Group) == "group_number")] <- "Floor"
+Dorm_Group = Dorm_Group %>%
+  mutate(floor_assignment = paste(dorm_assignment, "Floor", Floor)) %>%
+  group_by(floor_assignment) %>%
+  mutate(room_number = ceiling(row_number() / (n() / 20)),
+         room_assignment = paste(floor_assignment, "Room", room_number))
+# I calculate the following summary statistics to check that students were distributed
+# randomly. Doing just a spot check, it looks they were.
+Dorm_check = Dorm_Group %>%
+  group_by(dorm_assignment) %>%
+  summarize(high_school_rate = mean(high_school),
+            greek_rate = mean(greek))
+Floor_check = Dorm_Group %>%
+  group_by(floor_assignment) %>%
+  summarize(high_school_rate = mean(high_school),
+          greek_rate = mean(greek))
+Room_check = Dorm_Group %>%
+  group_by(room_assignment) %>%
+  summarize(high_school_rate = mean(high_school),
+            greek_rate = mean(greek))
+# I then regressed greek on high school with an OLS model and with a 2SLS model
+# instrumenting high school with dorm_assignment.
+Dorm_OLS = lm(greek~high_school, data = Dorm_Group)
+Dorm_SLS = ivreg(greek~high_school|dorm_assignment, data = Dorm_Group)
+Dorm_OLS_Summary = summary(Dorm_OLS)
+Dorm_2SLS_Summary = summary(Dorm_SLS)
+
+dorm_OLS_coeff = Dorm_OLS_Summary$coefficients[2,1]
+dorm_OLS_se = Dorm_OLS_Summary$coefficients[2,2]
+dorm_2SLS_coeff = Dorm_2SLS_Summary$coefficients[2,1]
+dorm_2SLS_se = Dorm_2SLS_Summary$coefficients[2,2]
+dorm_SLS_OLS_ratio = dorm_2SLS_coeff/dorm_OLS_coeff
+
+#I repeated the above regression but instead instrumented high_school with floor_assignment
+Floor_OLS = lm(greek~high_school, data=Dorm_Group)
+Floor_2SLS = ivreg(greek~high_school 
+                   |floor_assignment, data = Dorm_Group)
+
+Floor_OLS_Summary = summary(Floor_OLS)
+Floor_2SLS_Summary = summary(Floor_2SLS)
+
+floor_OLS_coeff = Floor_OLS_Summary$coefficients[2,1]
+floor_OLS_se = Floor_OLS_Summary$coefficients[2,2]
+floor_2SLS_coeff = Floor_2SLS_Summary$coefficients[2,1]
+floor_2SLS_se = Floor_2SLS_Summary$coefficients[2,2]
+floor_SLS_OLS_ratio = floor_2SLS_coeff/floor_OLS_coeff
+
+#Finally, I repeated regressions using room_assignment as an instrument.
+Room_OLS = lm(greek~high_school, data = Dorm_Group)
+Room_SLS = ivreg(greek~high_school
+                 |room_assignment,data = Dorm_Group)
+
+Room_OLS_Summary = summary(Room_OLS)
+Room_2SLS_Summary = summary(Room_SLS)
+
+room_OLS_coeff = Room_OLS_Summary$coefficients[2,1]
+room_OLS_se = Room_OLS_Summary$coefficients[2,2]
+room_2SLS_coeff = Room_2SLS_Summary$coefficients[2,1]
+room_2SLS_se = Room_2SLS_Summary$coefficients[2,2]
+room_SLS_OLS_ratio = room_2SLS_coeff/room_OLS_coeff
+```
+```{r, echo = FALSE}
+#Result Summary
+
+Results = matrix(
+  c(dorm_OLS_coeff, dorm_OLS_se, dorm_2SLS_coeff, dorm_2SLS_se, dorm_SLS_OLS_ratio,
+    floor_OLS_coeff, floor_OLS_se, floor_2SLS_coeff, floor_2SLS_se, floor_SLS_OLS_ratio,
+    room_OLS_coeff, room_OLS_se, room_2SLS_coeff, room_2SLS_se, room_SLS_OLS_ratio),
+  nrow = 3,
+  ncol = 5,
+  byrow = TRUE
+)
+colnames(Results) = c( "OLS Reg", "OLS SE", "2SLS Reg","2SLS SE", "Ratio")
+rownames(Results) = c("Dorms", "Floors", "Rooms")
+
+# Dorm_2SLS_Summary
+# Floor_2SLS_Summary
+# Room_2SLS_Summary
+print(Results)
+```
+
+Here, we see results consistent with what Angrist predicted. As groupings becoming more coarse (moving from rooms to floors to dorms), the ratio of the 2SLS to OLS coefficients increases while the standard error of the 2SLS regression increases. The regression model captures peer effects even though they do not exist in the data generating process.
+
+# Leave Out-Mean and Social Returns
+
+Angrist then discusses the leave-out mean model of peer effects, which take the form $y_{ij}=\beta_0+\beta_1 \bar{y} _{(i)j}+ \epsilon_{ij}$ for individual i in group j. Although this regression does not automatically produce $\beta_1=1$ (as the $y_{ij}=\beta_0+\beta_1 \bar{y}_j+ \epsilon_{ij}$ did), Angrist argues it does not provide a causal interpretation of peer characteristics, as it just captures intraclass correlation, such as shocks common to groups.We can see this in the example below. Data was generated for a population normally (referred to as "characteristic"), with a mean of 50 and a standard deviation of 1. The observations were grouped into 150 groups of 4 categories and each group received a random "shock". The "shock" and the observation's "characteristic" value were then summed together to create the value "characteristic_mod". The leave out mean for "characteristic_mod" was then calculated for each individual and regressed against "characteristic_mod". 
+
+```{r, include = FALSE}
+#Leave out means: I'm going to move onto the issues that Angrist discusses with leave out means,
+#specifically how they can mimic group specific shocks as well. I am going to start by generating 
+#a population with a normally distributed characteristic.
+leave_pop = data.frame(characteristic = rnorm(600, 50, 1))
+
+leave_out_mean = function(x) {
+  n = length(x)
+  sum_except_x = sum(x) - x
+  mean_except_x = sum_except_x / (n - 1)
+  return(mean_except_x)
+}
+
+grouper_no_dummy <- function(df, n) {
+  
+  # create a random number for each row
+  random <- sample(1:nrow(df), replace = FALSE, nrow(df))
+  
+  # divide the random number by the group size
+  df$group_number <- ceiling(random / (nrow(df) / n))
+  
+  return(df)  
+}
+
+# I then group the data into 150 groups of 4. We could see this as standing in for dorm rooms or other 
+# social groups. I then calculated a group shock that is random ( we can assume it is unobservable). 
+# I then add the group shock to the characteristic value and calculate the 
+# leave out mean of this value. I then regress characteristic_mod (characteristic plus the group effect) on the leave_out mean.
+
+
+leave_groups = grouper_no_dummy(leave_pop, 150)
+leave_groups = leave_groups %>%
+  group_by(group_number) %>%
+  mutate(group_effect = rnorm(1, 5, 0.5),
+         mean = mean(characteristic))
+leave_groups = arrange(leave_groups, group_number)
+leave_groups = leave_groups %>%
+    mutate(characteristic_mod = characteristic + group_effect,
+           leave_out = leave_out_mean(characteristic_mod),
+           outcome_group = characteristic + group_effect
+              ) 
+
+characteristic_model = coeftest(lm(characteristic_mod ~ leave_out, data = leave_groups), 
+                                vcoc = vcovCL, 
+                                type = "HC1", 
+                                cluster = ~group_number)
+
+```
+```{r, echo = FALSE}
+characteristic_model
+
+# Even though there are no peer effects in this, the regression estimates a statistically  
+# significant coefficient for leave out mean. It is just capturing intraclass correlation
+# described by Angrist in the paper.
+```
+As can be seen, the regression captures a statistically significant effect of leave out mean. However, this is not capturing any causal effect of leave out mean (since it does not exist in the data generating process). Instead it is capturing intraclass correlation caused by group specific shocks.
+
+Angrist also discusses flaws with the social returns model, $y= \beta_1 \mu_{(x|z)}+ \beta_0 x$, which is intended to capture the causal effect of the average value of x for group z on outcome y, controlling for an individual’s value of x. The social returns coefficient, $\beta_1$, is proportional to the difference between the 2SLS estimated coefficient of x from of regressing x on y (instrumenting for x with z) and the OLS estimate of the coefficient of x. $\beta_1$ then does not necessarily capture the causal effect of $\mu_{(x|z)}$ on y, as the 2SLS estimate can be greater than the OLS estimate for reasons such as measurement error or omitted variable bias. How these can effect 2SLS can be seen in the simulation below (I based it off the Acemoglu and Angrist paper given as an example in the Angrist paper). Data was generated for the "educ" variable and observations were grouped into categories of 10. A "state_effect" was also calculated. The variable "wages_state" was determined by the equation "wage_state = 200 + 25*(educ_state) + 20*state_effect", with "educ_state" being the sum of educ and state_effect. The influence of "state_effect" on wages acts as an omitted variable bias by violating the exclusion of principle of using states as an instrument.
+
+```{r, include = FALSE}
+# First, we randomly generate education for our entire population along with a "noise" variable of mean 0.
+social_return_pop = data.frame(educ = rnorm(1000, 14, 1.5)) %>%
+  mutate(noise = rnorm(1000, 0, 1.5))
+# Then we group them into 10 groups of equal size (these are "states")
+return_groups = grouper_no_dummy(social_return_pop, 10)
+#Then we create a group specific  "state" effect  that is randomly generated
+return_groups = return_groups %>%
+  group_by(group_number) %>%
+  mutate(state_effect = rnorm(1, 1,0.5))
+# Next, I am going to capture the measurement error and omitted variable bias. 
+# To capture the omitted variable bias, I created the variable educ_state, a 
+# linear combination of education and the state_effect. I also created the variable
+# wage, a linear combination of educ_state and state_effect.As the state effect 
+# impacts both educ and wage, it would violate the exclusion restriction, creating
+# omitted variable bias. To simulate measurement error, I created educ_noise, which is a linear 
+# combination of educ and a random generated value taken from a distribution of mean 0. Wage_noise
+# was generated using the same equation as wage but with educ_noise instead of educ_state.
+return_groups = return_groups %>%
+  mutate(educ_state = educ + 2*state_effect,
+         educ_state_noise = educ_state + noise,
+         educ_noise = educ + noise,
+         wage_state = 200 + 25*(educ_state) + 20*state_effect,
+         wage = 200 + 25*(educ))
+
+# First, we're going to show the effect of omitted variable bias, comparing OLS and 2SLS
+# regressions of educ_state on wage.
+return_OLS = summary(lm(wage_state~educ_state, data=return_groups))
+return_2SLS = summary(ivreg(wage_state~educ_state 
+                    |group_number, data = return_groups))
+```
+```{r, echo = FALSE}
+return_OLS
+return_2SLS
+
+return_2SLS$coefficients[2,1] - return_OLS$coefficients[2,1]
+```
+
+As can be seen, the failure of the state instrument to satisfy the exclusion restriction results in the 2SLS estimate of the effect of education on wages to be bigger than the OLS estimate, creating the appearance of peer effects. To demonstrate the effect of measurement error, I also generated the variable "wages" from the equation "wage = 200 + 25*(educ)" and the variable "educ_noise", which adds some randomly generated noise of mean 0 to the "educ" variable. Regressing wage on "educ_noise" instead of "educ" will attenuate the OLS and 2SLS measures of the effect of education on wage, but the attenuation will be greater for OLS compared to 2SLS, creating a gap between the 2 coefficients and the appearance of peer effects. This effect can be seen below.
+```{r, include = FALSE}
+return_noise_OLS = summary(lm(wage ~ educ_noise, data = return_groups))
+return_noise_2SLS = summary(ivreg(wage~educ_noise 
+                    |group_number, data = return_groups))
+```
+```{r, echo = FALSE}
+return_noise_OLS 
+return_noise_2SLS
+
+return_noise_2SLS$coefficients[2,1] - return_noise_OLS$coefficients[2,1] 
+
+```
+The estimated 2SLS estimate of education is larger than the OLS estimate, creating the appearance of peer effects
+
+# Solutions 
+
+Angrist discusses 2 potential methods to properly identify peer effects. The first requires distinguishing between subjects of peer effects and the peers themselves. Although this approach only captures the effect of peer group manipulation, it eliminates the link between individual characteristics and group characteristics, negating the need to control for individual characteristics. Angrist cites a study examining the effectiveness of housing vouchers, which looked at peer effects on individual outcomes when moving to low poverty neighborhoods. Since the vouchers were randomly assigned, there was no need to control for individual characteristics in the regression. I simulated this in the below regression. In this model "peer_char" is the average of the peer characteristics that a group is assigned too. There is also an individual characteristic that drives wages. I then generated 2 wages, peer_wage and no_peer_wage, to capture a situation where peer effects do not exist (the first regression) and one where they do (the second regression). 
+```{r, include = FALSE}
+
+grouper <- function(df, n) {
+  
+  # create a random number for each row
+  random <- sample(1:nrow(df), replace = FALSE, nrow(df))
+  
+  # divide the random number by the group size
+  df$group_number <- ceiling(random / (nrow(df) / n))
+  
+  #Add dummy variables for group membership
+  df = dummy_cols(df, select_columns = "group_number")
+  
+  return(df)  
+}
+
+# We can first look at the MTO example. To simulate this, we need assign a 
+# population to larger groups.
+# In this model "peer_char" is the average of the peer characteristics
+# that a group is assigned too. There is also an individual characteristic that drives wages.
+# I then generate 2 wages, peer_wage and no_peer_wage, to capture a situation where 
+# peer effects exist and one where they do not. 
+
+
+#Need to switch this next to 2SLS when I get the chance. This weekend?
+mto_pop = data.frame(char = rnorm(10000, 250, 5))
+mto_groups = grouper(mto_pop, 10)
+mto_groups = mto_groups %>%
+  group_by(group_number) %>%
+  mutate(peer_char = rnorm(1, 10, 1.5),
+         peer_wage = char + 0.5*peer_char,
+         no_peer_wage = char)
+no_peer_reg = coeftest(lm(no_peer_wage~peer_char, data = mto_groups),
+                       vcoc = vcovCL, 
+                       type = "HC1", 
+                       cluster = ~group_number)
+peer_reg = coeftest(lm(peer_wage~peer_char, data = mto_groups),
+                    vcoc = vcovCL, 
+                    type = "HC1", 
+                    cluster = ~group_number)
+```
+```{r, echo = FALSE}
+no_peer_reg
+peer_reg 
+# As can be seen, this model captures peer effects when they exist (as the results 
+# is statistically significant and close to the actual effect in the model) and does
+# not when they do not exist (as the coefficient on peer effects in)
+```
+
+As can be seen, this approach captures peer effects when they exist (as the results are statistically significant and close to the actual effect in the model) and does not when they do not exist (as the coefficient on peer effects in the first regression are not statistically significant) and when they do exist (as the results are statistically significant and close to the true effect of 0.5, as seen in the second regression).
+
+The other proposed solution is the "no peer effects" null hypothesis, where OLS and 2SLS parameters are expected to produce the same results if peer effects do not exist. Angrist suggests accomplishing this by using random assignment to create a strong first stage for peer characteristics but ensuring OLS and IV estimates of own effects are the same under the no peer null hypothesis. The example he gives is a job training study that randomly assigned treatment proportions for job search assistance to different labor markets in France. The social returns model for this equation took the form $y_{ic}= \mu+\pi_1 p_c+\pi_0 t_{ic}+v_{ic}$, with $t_{ic}$ being treatment status for individual i in labor market c and p_c the proportion of job hunters receiving aid in job market c. As this experiment does not have measurement error (assuming wages are not self reported) or omitted variable bias (as the instrument, proportion of job aid, is randomly assigned and not correlated with having a job), OLS and 2SLS are not expected to diverge unless peer effects exist. I will demonstrate the effectiveness of this approach with a simulation. 235 "labor markets" were randomly assigned the following proportions of "job aid": (0, 0.25, 0.5, 0.75, 1).  Individuals in each labor market had that probability of receving job aid, which increased their probability of being hired from 0.25 to 0.35. In this process, peer effects do no exist. 1000 individuals were generated for each labor market. Receiving job assistance (indicated by a dummy variable) was regressed against job status for both the OLS and 2SLS regressions, with the latter using city to instrument for job assistance start simulating this approach by replicating the data generating process, with a a strong first and second stage, but with no peer effects.
+```{r, include = FALSE}
+treat_prop = c(0, 0.25, 0.5, 0.75, 1)
+lab_mkt = 235
+mkt_asg = sample(treat_prop, lab_mkt, replace = TRUE)
+cities = data.frame(treat_prop = mkt_asg)
+cities = grouper_no_dummy(cities, 235)
+cities = arrange(cities, group_number)
+
+
+# Define function to generate entries based on rate
+generate_entries = function(rate, num_entries) {
+  entries = sample(c(0, 1), num_entries, replace = TRUE, prob = c(1 - rate, rate))
+  return(entries)
+}
+
+
+# Initialize vectors to store data
+entries = c()
+rate_assigned = c()
+group = c()
+
+# Generate entries for each value in mkt_asg
+for (i in 1:length(mkt_asg)) {
+  num_entries = 1000  # Number of entries for each value in mkt_asg
+  rate = mkt_asg[i]
+  generated_entries = generate_entries(rate, num_entries)
+  entries = c(entries, generated_entries)
+  rate_assigned = c(rate_assigned, rep(rate, num_entries))
+  group = c(group, rep(i, num_entries))
+}
+
+# Create dataframe to store data
+city_data = data.frame(
+  assist_rate = rate_assigned,
+  city = group,
+  job_assist = entries
+)
+# I calculated some summaries of the data just to check that the data lined up with what
+# I wanted to do. Next, I generated jobs in a situation with no peer effects/negative
+# spillover and in a situation with spillover. job_no_peer captured the former, job_peer
+# captured the latter. 
+city_data_sum = city_data %>%
+  group_by(city) %>%
+  summarize(obs_rate = mean(job_assist),
+            act_rate = mean(assist_rate))
+city_data = city_data %>%
+  mutate(job_no_peer = ifelse(job_assist == 1,
+                              yes = rbinom(235000, 1, 0.35),
+                              no = rbinom(235000, 1, 0.25)),
+         job_peer = ifelse(job_assist == 1,
+                           yes = job_no_peer,
+                           no = rbinom(235000, 1, 0.25 - 0.15*assist_rate)))
+
+assist_summary = city_data %>%
+  group_by(job_assist) %>%
+  summarize(peer_job_rate = mean(job_peer),
+            nopeer_job_rate = mean(job_no_peer))
+ggplot(city_data_sum) +
+  geom_histogram(aes(x = act_rate))
+ggplot(city_data_sum) +
+  geom_histogram(binwidth = 0.05, aes(x = obs_rate))
+
+# coeftest(lm(job_no_peer ~ job_assist, data = city_data), 
+#          vcoc = vcovCL, 
+#          type = "HC1", 
+#          cluster = ~group_number)
+# 
+# coeftest(lm(job_no_peer ~ assist_rate , data = city_data), 
+#          vcoc = vcovCL, 
+#          type = "HC1", 
+#          cluster = ~group_number)
+assist_sum = summary(lm(job_no_peer ~ job_assist, data = city_data))
+
+rate_sum = summary(lm(job_no_peer ~ assist_rate, data = city_data))
+assist_sum 
+rate_sum
+```
+```{r, echo = FALSE}
+assist_sum 
+rate_sum
+
+```
+
+As can be the seen, the coefficients for the OLS regression on job assistance (the first regression) and the 2SLS regression (the second regression) appear to be pretty similar. Testing against the null hypothesis the two coefficients are equal (or alternatively their difference is 0) produces the following z-score.
+```{r, echo = FALSE}
+coeff_diff = (rate_sum$coefficients[2,1] - assist_sum$coefficients[2,1])
+sd_sum = (rate_sum$coefficients[2,2]^2 + assist_sum$coefficients[2,2]^2)
+z_score = (coeff_diff)/(sd_sum)^(0.5)
+z_score
+```
+
+We would then fail to reject a null hypothesis that the OLS and 2SLS parameters have a difference that is not equal to 0 at the 5% level. To test the robustness of this approach, I also conducted a Monte Carlo simulation. The monte carlo simulation repeated the above data generation and regressions 1000 times. The difference in coefficients between the 2SLS and OLS regressions and the z-scores of the difference in coefficients against a null hypothesis of equaling 0 are also plotted on histograms. The z-score histograms also include a blue vertical line at 1.96 and -1.96 (indicating statistical significance at 5%) and a red vertical line for 1.645 and -1.645 (indicating statistical significance at the 10% level). 
+```{r, include = FALSE}
+no_peer_simulation = function(num_simulations) {
+  coeff_diff_values = numeric(num_simulations)
+  z_scores = numeric(num_simulations)
+  
+    for (j in 1:num_simulations) {
+      set.seed(NULL)
+      treat_prop = c(0, 0.25, 0.5, 0.75, 1)
+      lab_mkt = 235
+      mkt_asg = sample(treat_prop, lab_mkt, replace = TRUE)
+      cities = data.frame(treat_prop = mkt_asg)
+      cities = grouper_no_dummy(cities, 235)
+      cities = arrange(cities, group_number)
+      
+      # Initialize vectors to store data
+      entries = c()
+      rate_assigned = c()
+      group = c()
+      for (i in 1:length(mkt_asg)) {
+        num_entries = 1000  # Number of entries for each value in mkt_asg
+        rate = mkt_asg[i]
+        generated_entries = generate_entries(rate, num_entries)
+        entries = c(entries, generated_entries)
+        rate_assigned = c(rate_assigned, rep(rate, num_entries))
+        group = c(group, rep(i, num_entries))
+      }
+      city_data = data.frame(
+        assist_rate = rate_assigned,
+        city = group,
+        job_assist = entries
+      )
+    
+      city_data = city_data %>%
+        mutate(job_no_peer = ifelse(job_assist == 1,
+                                    yes = rbinom(n(), 1, 0.35),
+                                    no = rbinom(n(), 1, 0.25)),
+               job_peer = ifelse(job_assist == 1,
+                                 yes = job_no_peer,
+                                 no = rbinom(n(), 1, 0.25 - 0.15*assist_rate)))
+      
+      assist_sum <- summary(lm(job_no_peer ~ job_assist, data = city_data))
+      rate_sum <- summary(lm(job_no_peer ~ assist_rate, data = city_data))
+      coeff_diff_values[j] <- rate_sum$coefficients[2,1] - assist_sum$coefficients[2,1]
+      
+      sd_sum <- (rate_sum$coefficients[2,2]^2 + assist_sum$coefficients[2,2]^2)
+      z_scores[j] <- coeff_diff_values[j] / sqrt(sd_sum)
+      
+    }
+  result = data.frame(coeff_diffs = coeff_diff_values, 
+                      z_score = z_scores, 
+                      rate_coeff =  rate_sum$coefficients[2,1], 
+                      assist_coeff = assist_sum$coefficients[2,1]
+                      )
+  return(result)
+}
+sim_results = no_peer_simulation(1000)
+```
+```{r, echo = FALSE}
+ggplot(sim_results) + 
+  geom_histogram(aes(x=coeff_diffs))
+# Finally a histogram of the z-score of coefficient difference
+ggplot(sim_results) + 
+  geom_histogram(aes(x=z_score)) +
+  geom_vline(xintercept = 1.96, color = "blue") +
+  geom_vline(xintercept = -1.96, color = "blue") +
+  geom_vline(xintercept = 1.645, color = "red") +
+  geom_vline(xintercept = -1.645, color = "red")
+```
+
+As can be seen in the histogram of coefficient difference, most of the coefficients in the no peer null have a difference no greater than 0.005. Further, as seen in the histogram of the z-scores of the coefficient differences, the majority of the estimated coefficients do not have a difference that is statistically different from 0, indicating that this model satisfies the no peer null assumption.
