@@ -65,8 +65,8 @@ As directed by the NSPM, the Assistant to the President for National Security Af
 The action plan shall be provided to the President within 120 days of the date of this order, and may be classified in full or in part, as appropriate.
 Upon approval by the President, the action plan shall be implemented by all agencies who are recipients of the NSPM, for all AI-related activities, including those conducted pursuant to this order.
 Definitions. As used in this order: 
-the term “artificial intelligence” means the full extent of Federal investments in AI, to include: R&D of core AI techniques and technologies; AI prototype systems; application and adaptation of AI techniques; architectural and systems support for AI; and cyberinfrastructure, data sets, and standards for AI; and
-the term “open data” shall, in accordance with OMB Circular A-130 and memorandum M-13-13, mean “publicly available data structured in a way that enables the data to be fully discoverable and usable by end users.”
+the term Â“artificial intelligenceÂ” means the full extent of Federal investments in AI, to include: R&D of core AI techniques and technologies; AI prototype systems; application and adaptation of AI techniques; architectural and systems support for AI; and cyberinfrastructure, data sets, and standards for AI; and
+the term Â“open dataÂ” shall, in accordance with OMB Circular A-130 and memorandum M-13-13, mean Â“publicly available data structured in a way that enables the data to be fully discoverable and usable by end users.Â”
 General Provisions.
 Nothing in this order shall be construed to impair or otherwise affect:
 the authority granted by law to an executive department or agency, or the head thereof; or
